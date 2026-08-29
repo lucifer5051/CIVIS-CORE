@@ -1,6 +1,13 @@
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 from pydantic import BaseModel, Field
+
+
+class DetectionMode(str, Enum):
+    FULL_FRAME = "full_frame"
+    SLICED_ONLY = "sliced_only"
+    HYBRID = "hybrid"
 
 
 @dataclass
@@ -67,6 +74,20 @@ class DetectionResult:
         return len(self.detections)
 
 
+class SAHIConfig(BaseModel):
+    slice_height: int = Field(default=320, ge=32, description="Slice height in pixels")
+    slice_width: int = Field(default=320, ge=32, description="Slice width in pixels")
+    overlap_height_ratio: float = Field(default=0.2, ge=0.0, lt=1.0, description="Height overlap ratio between slices")
+    overlap_width_ratio: float = Field(default=0.2, ge=0.0, lt=1.0, description="Width overlap ratio between slices")
+    mode: DetectionMode = Field(
+        default=DetectionMode.HYBRID,
+        description="Inference mode: full_frame, sliced_only, or hybrid",
+    )
+    postprocess_match_threshold: float = Field(
+        default=0.5, ge=0.0, le=1.0, description="NMS match threshold for merging overlapping slice predictions"
+    )
+
+
 class DetectorConfig(BaseModel):
     model_path: str = Field(default="yolo12n.pt", description="Path to YOLO12 weights or model name")
     conf_threshold: float = Field(default=0.25, ge=0.0, le=1.0, description="Confidence score threshold")
@@ -75,3 +96,4 @@ class DetectorConfig(BaseModel):
     device: str = Field(default="cuda", description="Device hardware selection ('cuda', 'cpu', '0', etc.)")
     classes: Optional[List[int]] = Field(default=None, description="Optional class ID filter list")
     use_mock: bool = Field(default=False, description="Whether to use MockDetector for fast testing")
+    sahi_config: Optional[SAHIConfig] = Field(default=None, description="Optional SAHI slicing configuration")
