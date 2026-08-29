@@ -1,0 +1,46 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Caches & Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+
+# Model weights & AI artifacts
+*.pt
+*.onnx
+*.engine
+*.pth
+*.bin
+*.safetensors
+runs/
+.ultralytics/
+
+# Temporary / Generated Video & Media Files
+*.mp4
+*.avi
+*.mkv
+*.mov
+*.jpg
+*.jpeg
+*.png
+
+# Logs & System metadata
+*.log
+.DS_Store
+Thumbs.db
+
+# IDE & Project Configs
+.idea/
+.vscode/
+.gemini/
