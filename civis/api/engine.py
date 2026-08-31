@@ -124,25 +124,95 @@ class APIEngine(BaseAPIEngine):
                 await self.ws_manager.disconnect(websocket)
 
     def attach_runtime_events(self, runtime: Any) -> None:
-        """Subscribes to runtime event bus to forward events to active WebSockets."""
-        if not hasattr(runtime, "event_bus") or runtime.event_bus is None:
-            return
+        """Subscribes to runtime event bus and camera processing to forward live telemetry to WebSockets."""
+        if hasattr(runtime, "event_bus") and runtime.event_bus is not None:
+            def _forward_event(evt):
+                msg = {
+                    "event_type": evt.event_type.value if hasattr(evt.event_type, "value") else str(evt.event_type),
+                    "camera_id": evt.camera_id,
+                    "timestamp": evt.timestamp,
+                    "stage_name": getattr(evt, "stage_name", None),
+                    "message": getattr(evt, "message", ""),
+                    "data": getattr(evt, "details", {}) or getattr(evt, "data", {}),
+                }
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        asyncio.create_task(self.ws_manager.broadcast(msg))
+                except Exception:
+                    pass
 
-        def _forward_event(evt):
-            msg = {
-                "event_type": evt.event_type.value if hasattr(evt.event_type, "value") else str(evt.event_type),
-                "camera_id": evt.camera_id,
-                "timestamp": evt.timestamp,
-                "data": evt.data,
-            }
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    asyncio.create_task(self.ws_manager.broadcast(msg))
-            except Exception:
-                pass
+            runtime.event_bus.subscribe(None, _forward_event)
 
-        runtime.event_bus.subscribe(None, _forward_event)
+        # Attach frame telemetry callback to camera runtimes
+        if hasattr(runtime, "_cameras"):
+            for cam_id, cam_rt in runtime._cameras.items():
+                def _make_telemetry_callback(cid):
+                    def _on_processed(ctx):
+                        telemetry = {
+                            "event_type": "pipeline_telemetry",
+                            "camera_id": cid,
+                            "timestamp": ctx.packet.timestamp if ctx.packet else time.time(),
+                            "frame_number": ctx.packet.frame_number if ctx.packet else 0,
+                            "data": {
+                                "stage_timings_ms": ctx.stage_timings_ms,
+                                "detections_count": len(ctx.detection_result.detections) if ctx.detection_result else 0,
+                                "tracks_count": len(ctx.track_result.tracks) if ctx.track_result else 0,
+                                "tracks": [
+                                    {
+                                        "track_id": t.track_id,
+                                        "class_name": t.class_name,
+                                        "confidence": round(t.confidence, 3),
+                                        "state": t.state.value if hasattr(t.state, "value") else str(t.state),
+                                    }
+                                    for t in (ctx.track_result.tracks if ctx.track_result else [])
+                                ],
+                                "identities": [
+                                    {
+                                        "track_id": i.track_id,
+                                        "identity_id": i.identity_id,
+                                        "name": i.name,
+                                        "state": i.state.value if hasattr(i.state, "value") else str(i.state),
+                                        "confidence": i.recognition_confidence,
+                                    }
+                                    for i in (ctx.identity_result.identities if ctx.identity_result else [])
+                                ],
+                                "global_entities": [
+                                    {
+                                        "global_entity_id": e.global_entity_id,
+                                        "num_cameras": e.num_associated_cameras,
+                                        "primary_identity": e.primary_identity_id,
+                                    }
+                                    for e in (ctx.reid_result.global_entities if ctx.reid_result else [])
+                                ],
+                                "behavior_events": [
+                                    {
+                                        "event_type": b.event_type,
+                                        "track_id": b.primary_track_id,
+                                        "zone_id": b.zone_id,
+                                    }
+                                    for b in (ctx.behavior_result.events if ctx.behavior_result else [])
+                                ],
+                                "risk_score": max([a.severity_score for a in ctx.risk_result.assessments], default=0.0) if ctx.risk_result and ctx.risk_result.assessments else 0.0,
+                                "risk_alerts": [
+                                    {
+                                        "alert_id": alt.alert_id,
+                                        "severity": alt.severity.value if hasattr(alt.severity, "value") else str(alt.severity),
+                                        "headline": alt.headline,
+                                    }
+                                    for alt in (ctx.risk_result.alerts if ctx.risk_result else [])
+                                ],
+                            },
+                        }
+                        try:
+                            loop = asyncio.get_event_loop()
+                            if loop.is_running():
+                                asyncio.create_task(self.ws_manager.broadcast(telemetry))
+                        except Exception:
+                            pass
+                    return _on_processed
+
+                cam_rt.on_frame_processed = _make_telemetry_callback(cam_id)
 
     def get_app(self) -> FastAPI:
         return self.app

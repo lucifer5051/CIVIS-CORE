@@ -1,127 +1,146 @@
-# CIVIS-CORE: Real Laptop Webcam Integration & Live Demo
+# CIVIS-CORE: Live Laptop Webcam & Web Operator Console
 
-This guide explains how to run the CIVIS-CORE computer vision and surveillance analytics pipeline against a live local webcam, video file, or RTSP stream.
+This guide explains how to run the CIVIS-CORE computer vision and surveillance analytics pipeline against a live local webcam, video file, or RTSP stream, and monitor it through either the **Live Web Operator Console** or the **Standalone OpenCV Window**.
 
 ---
 
 ## 1. Prerequisites & Dependencies
 
-The webcam demo relies on the existing CIVIS-CORE stack:
+The system runs on the standard CIVIS-CORE environment:
 
 ```bash
-# Core dependencies
-pip install opencv-python numpy pydantic
+# Core backend dependencies
+pip install fastapi uvicorn opencv-python numpy pydantic
 
 # Optional neural model backends (YOLO, SAHI, PyTorch)
 pip install torch ultralytics sahi
+
+# Frontend Dashboard (Vite + React + TypeScript)
+cd frontend/civis-dashboard
+npm install
+npm run build
+cd ../..
 ```
 
-> **Note**: If neural weights or GPU libraries are not installed, pass `--use-mock` or rely on the automatic heuristic fallback mode.
+> **Note**: If neural weights or physical webcam hardware are not available in your environment, pass `--use-mock` or rely on the automatic synthetic fallback mode.
 
 ---
 
-## 2. Quick Start
+## 2. Quick Start: Browser Operator Console (Recommended)
 
-### Basic Webcam Execution (Live Display)
+Start the unified CIVIS-CORE backend with live webcam streaming and operator console:
 
 ```bash
-# Start with default webcam (Device Index 0 at 1280x720)
-python demo_webcam.py
+# Start backend + live webcam and open browser console automatically
+python run_civis.py --camera 0 --open-browser
 ```
 
-### High-Performance Lightweight Stream (640x480, 15 FPS)
+### Access Points
+- **Operator Console**: [http://localhost:8000](http://localhost:8000)
+- **Live MJPEG Camera Stream**: [http://localhost:8000/cameras/CAM_01/stream](http://localhost:8000/cameras/CAM_01/stream)
+- **Single JPEG Snapshot**: [http://localhost:8000/cameras/CAM_01/snapshot](http://localhost:8000/cameras/CAM_01/snapshot)
+- **Real-Time Telemetry WebSocket**: `ws://localhost:8000/ws/events`
+- **Interactive REST API Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
 
+### Lightweight / Low-Latency Stream (640x480, 15 FPS)
 ```bash
-python demo_webcam.py --camera 0 --width 640 --height 480 --fps 15
+python run_civis.py --camera 0 --width 640 --height 480 --fps 15
 ```
 
-### Adaptive SAHI Small-Object Mode with Real Face Detection
+### Frontend Hot-Reload Development Mode
+```bash
+# Terminal 1: Backend
+python run_civis.py --camera 0
+
+# Terminal 2: React Dashboard with Hot Module Replacement
+cd frontend/civis-dashboard
+npm run dev
+```
+
+---
+
+## 3. Alternative: Standalone OpenCV Window
+
+If you prefer a direct OpenCV desktop window without running the web server:
 
 ```bash
+# Live webcam execution with OpenCV GUI
+python demo_webcam.py --camera 0
+
+# Adaptive SAHI small-object detection
 python demo_webcam.py --sahi adaptive --face-detector yunet --conf 0.30
-```
 
-### Deterministic Offline / Testing Mode (Headless)
-
-```bash
-python demo_webcam.py --use-mock --no-display --max-frames 50
+# Headless / deterministic test run
+python demo_webcam.py --use-mock --no-display --max-frames 30
 ```
 
 ---
 
-## 3. Command-Line Options Reference
+## 4. Web Console Architecture & Layout
+
+The React Operator Console features a dedicated **Live Monitor** view:
+
+### Top Navigation & Control Bar
+- **System Status**: `HEALTHY` / `DEGRADED` / `OFFLINE` badge with pulse indicator.
+- **Camera Feed Selector**: Dropdown to select active camera feed (`CAM_01`, `CAM_02`).
+- **Camera State**: `LIVE STREAMING` (Green), `PAUSED` (Amber), `OFFLINE` (Slate).
+- **Controls**: `[Start Camera]`, `[Stop Camera]`, `[Pause]`, `[Resume]`.
+- **Privacy Assurance**: `🔒 LOCAL ONLY • ZERO CLOUD STORAGE • PRIVACY SAFE`.
+- **Performance Chips**: Real-time Capture FPS, Pipeline Latency, Processed Frame Counter.
+
+### Main Workspace (Split Grid)
+- **Left Column (Large Video Feed)**:
+  - Live multipart/x-mixed-replace MJPEG video stream.
+  - Video status overlays: Live tag, top-right risk severity banner, and bottom track count badges.
+  - Interactive placeholder and recovery if camera is offline.
+- **Right Column (Live Intelligence Stream)**:
+  - **Active Tracks**: List of current tracked objects with class names and confidence percentages.
+  - **Face & Identity**: Detected faces, known names, and `UNKNOWN` status badges.
+  - **Cross-Camera Re-ID**: Global entity IDs linked across multiple camera feeds.
+  - **Behavior Observations**: Active loitering, dwelling, and zone boundary events.
+
+### Bottom Telemetry & Scrolling Event Stream
+- **Pipeline Stage Profiler (ms)**: Real-time per-stage latencies for `detection`, `tracking`, `identity`, `reid`, `behavior`, and `risk`.
+- **Live Audit Event Stream**: Auto-scrolling WebSocket event timeline displaying incoming security events and state changes.
+
+---
+
+## 5. Command-Line Reference
+
+### `run_civis.py`
 
 | Option | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `--camera` | `int/str` | `0` | Camera device index (e.g. `0`, `1`), video file path (`test.mp4`), or RTSP URL |
-| `--camera-id` | `str` | `WEBCAM_01` | Unique camera ID identifier used in logs, traces, and evidence |
-| `--width` | `int` | `1280` | Target capture width in pixels |
-| `--height` | `int` | `720` | Target capture height in pixels |
-| `--fps` | `float` | `30.0` | Target ingestion FPS cap |
-| `--frame-interval` | `int` | `1` | Frame skip interval (e.g., `2` to process every 2nd frame) |
+| `--host` | `str` | `0.0.0.0` | HTTP Server bind address |
+| `--port` | `int` | `8000` | HTTP Server port |
+| `--camera` | `int/str` | `0` | Camera device index (`0`), video file (`video.mp4`), or RTSP URL |
+| `--camera-id` | `str` | `CAM_01` | Unique camera ID identifier |
+| `--width` | `int` | `1280` | Target frame capture width |
+| `--height` | `int` | `720` | Target frame capture height |
+| `--fps` | `float` | `30.0` | Ingestion FPS limit |
 | `--sahi` | `str` | `auto` | SAHI mode: `full_frame`, `sliced_only`, `hybrid`, `auto`, `adaptive` |
-| `--conf` | `float` | `0.35` | Object detection confidence threshold |
 | `--face-detector` | `str` | `yunet` | Face detector backend: `yunet`, `scrfd`, `heuristic`, `mock` |
-| `--use-mock` | `flag` | `False` | Run with deterministic synthetic test models without neural weight files |
-| `--save-evidence` | `flag` | `False` | Explicitly enable cryptographic evidence logging and package export |
-| `--export-dir` | `str` | `./evidence_store` | Target root directory for forensic export packages |
-| `--no-display` | `flag` | `False` | Headless mode (no OpenCV GUI window, for CI/remote servers) |
-| `--max-frames` | `int` | `None` | Automatically stop after processing $N$ frames |
+| `--use-mock` | `flag` | `False` | Run with deterministic synthetic test pipeline |
+| `--open-browser` | `flag` | `False` | Automatically open default web browser to console |
 
 ---
 
-## 4. Live Visualizer Overlays
+## 6. Privacy & Safety Guarantees
 
-When running with GUI display enabled (`demo_webcam.py`), the following overlays are rendered in real-time:
-
-1. **Privacy Header Banner (Top)**:
-   - Green indicator confirming local-only stream execution.
-   - Timestamp, Camera ID, and Privacy assurance badge.
-2. **Track Bounding Boxes**:
-   - Distinct color-coded bounding boxes per Track ID.
-   - Class label (e.g., `#1 person 92%`).
-3. **Face Detection & Identity**:
-   - Cyan sub-box around detected faces with facial landmarks.
-   - Identity badge: `Face: UNKNOWN` or enrolled person name.
-4. **Cross-Camera Re-ID Tag**:
-   - Global Entity ID assigned to tracked person (`Global: XXXXXX`).
-5. **Behavior Indicators**:
-   - Dynamic movement warnings (e.g., `! LOITERING !`, `Dwelling`).
-6. **Risk Assessment Banner (Top-Right)**:
-   - Colored badge when risk score $\ge 40$ (Amber for Moderate, Red for High/Critical).
-7. **Performance & Diagnostic HUD (Bottom)**:
-   - Real-time Capture FPS & Processed FPS.
-   - End-to-end latency and per-stage latency breakdown (`Det`, `Trk`, `Id`, `ReID`, `Beh`, `Risk`).
-
----
-
-## 5. Interactive Keyboard Controls
-
-While the OpenCV display window is focused:
-
-- **`q`** or **`ESC`**: Gracefully stop the stream and exit.
-- **`p`**: Pause / Resume pipeline processing.
-- **`s`**: Take an immediate evidence ledger snapshot / audit check.
-
----
-
-## 6. Privacy & Safety Controls
-
-By default:
-- **No Cloud Upload**: All inference and processing remain strictly on the local machine.
-- **No Permanent Video Storage**: Raw webcam video is discarded frame-by-frame; only in-memory tensors are used during active analysis.
-- **Evidence Opt-In**: Evidence logging and forensic packages are **only** generated if the `--save-evidence` flag is explicitly provided.
+1. **Local-Only Execution**: Raw video frames and neural embeddings remain strictly on the host machine.
+2. **Zero Cloud Upload**: No telemetry, images, or metadata are transmitted to external services.
+3. **No Automatic Video Recording**: Video frames are processed in-memory and discarded frame-by-frame.
+4. **Explicit Forensic Retention**: Cryptographic hash chains and evidence packages are only generated when explicitly requested via the Evidence Subsystem or `--save-evidence`.
 
 ---
 
 ## 7. Troubleshooting Camera Access
 
 1. **Camera cannot be opened (`[!] Hardware webcam could not be opened`)**:
-   - Verify that another application (Zoom, Teams, Camera app) is not holding an exclusive lock on the camera device.
-   - Try specifying an alternate camera index: `python demo_webcam.py --camera 1`
-   - On Windows, verify camera privacy permissions under *Settings > Privacy & Security > Camera*.
-   - If no hardware camera is present (e.g. headless VM or Docker container), `demo_webcam.py` automatically falls back to an animated synthetic test stream.
+   - Verify that other applications (Zoom, Teams, Camera app) are closed.
+   - On Windows, ensure camera permissions are granted under *Settings > Privacy & Security > Camera*.
+   - If using an external USB camera, test with index 1: `python run_civis.py --camera 1`.
+   - When running in headless environments or VMs without webcam hardware, CIVIS automatically switches to an animated synthetic test stream.
 2. **High Latency or Low FPS**:
-   - Reduce capture resolution: `--width 640 --height 480`
-   - Enable frame skipping: `--frame-interval 2`
-   - Use `full_frame` or `auto` SAHI mode instead of forced slicing: `--sahi auto`
+   - Reduce capture resolution: `python run_civis.py --width 640 --height 480 --fps 15`.
+   - Use default `auto` SAHI mode to avoid heavy tiling on high resolutions.

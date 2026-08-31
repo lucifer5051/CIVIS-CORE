@@ -44,3 +44,8 @@ Thumbs.db
 .idea/
 .vscode/
 .gemini/
+
+# Node & Frontend
+node_modules/
+dist/
+package-lock.json

@@ -1,8 +1,12 @@
-from typing import Any, Dict, List
-from fastapi import APIRouter, Depends, HTTPException, status
+import asyncio
+from typing import Any, Dict, List, Optional
+from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi.responses import StreamingResponse
+import numpy as np
 
 from civis.api.dependencies import APIDependencies
 from civis.api.models import APICameraActionResponse, APICameraStatusResponse
+from civis.runtime.overlay import encode_jpeg
 
 
 def create_cameras_router(deps: APIDependencies, auth_dep: Any) -> APIRouter:
@@ -120,5 +124,60 @@ def create_cameras_router(deps: APIDependencies, auth_dep: Any) -> APIRouter:
             success=True,
             message="Camera resumed successfully",
         )
+
+    @r.get("/{camera_id}/stream", summary="Live MJPEG video stream with pipeline overlays")
+    async def get_camera_stream(camera_id: str, max_frames: Optional[int] = None):
+        rt = deps.get_runtime_engine()
+        if not rt:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Runtime engine unavailable")
+
+        cam = rt.get_camera_runtime(camera_id)
+        if not cam:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Camera '{camera_id}' not found")
+
+        async def _mjpeg_generator():
+            count = 0
+            try:
+                while True:
+                    frame_bytes = cam.get_latest_frame_jpeg(timeout=0.3)
+                    if frame_bytes is None:
+                        placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
+                        placeholder[:] = (25, 28, 32)
+                        frame_bytes = encode_jpeg(placeholder)
+
+                    if frame_bytes is not None:
+                        yield (
+                            b"--frame\r\n"
+                            b"Content-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
+                        )
+                        count += 1
+                        if max_frames is not None and count >= max_frames:
+                            break
+                    await asyncio.sleep(0.033)
+            except asyncio.CancelledError:
+                pass
+
+        return StreamingResponse(
+            _mjpeg_generator(),
+            media_type="multipart/x-mixed-replace; boundary=frame",
+        )
+
+    @r.get("/{camera_id}/snapshot", summary="Get single latest annotated JPEG frame")
+    async def get_camera_snapshot(camera_id: str):
+        rt = deps.get_runtime_engine()
+        if not rt:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Runtime engine unavailable")
+
+        cam = rt.get_camera_runtime(camera_id)
+        if not cam:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Camera '{camera_id}' not found")
+
+        frame_bytes = cam.get_latest_frame_jpeg(timeout=1.0)
+        if not frame_bytes:
+            placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
+            placeholder[:] = (25, 28, 32)
+            frame_bytes = encode_jpeg(placeholder)
+
+        return Response(content=frame_bytes or b"", media_type="image/jpeg")
 
     return r

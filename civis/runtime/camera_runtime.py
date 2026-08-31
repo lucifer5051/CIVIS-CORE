@@ -5,7 +5,7 @@ from typing import Callable, Dict, List, Optional
 
 from civis.ingestion.models import CameraStatus, FramePacket
 from civis.ingestion.stream_manager import StreamManager
-from civis.runtime.events import RuntimeEvent, RuntimeEventBus, RuntimeEventType
+from civis.runtime.events import RuntimeEvent, RuntimeEventType, RuntimeEventBus
 from civis.runtime.health import HealthMonitor
 from civis.runtime.models import (
     CameraHealth,
@@ -13,7 +13,9 @@ from civis.runtime.models import (
     DropPolicy,
     RuntimeState,
     StageHealth,
+    StageState,
 )
+from civis.runtime.overlay import encode_jpeg, render_pipeline_overlay
 from civis.runtime.pipeline import PipelineContext, SequentialPipeline
 from civis.runtime.scheduler import BoundedFrameQueue
 
@@ -59,6 +61,12 @@ class CameraRuntime:
         self._total_errors = 0
         self._last_processed_time = 0.0
         self._stats_lock = threading.Lock()
+
+        # Live frame buffer for web streaming
+        self._latest_frame_jpeg: Optional[bytes] = None
+        self._latest_context: Optional[PipelineContext] = None
+        self._frame_lock = threading.Lock()
+        self._new_frame_event = threading.Event()
 
         # Optional output callback
         self.on_frame_processed: Optional[Callable[[PipelineContext], None]] = None
@@ -182,6 +190,21 @@ class CameraRuntime:
             for stage_name, lat in context.stage_timings_ms.items():
                 self.health_monitor.record_stage_execution(self.camera_id, stage_name, lat)
 
+            # Render live overlay and buffer JPEG frame for web streaming
+            annotated = render_pipeline_overlay(
+                frame=packet.frame,
+                context=context,
+                camera_id=self.camera_id,
+                fps=self.health_monitor.get_camera_fps(self.camera_id),
+                latency_ms=total_latency_ms,
+                privacy_mode=True,
+            )
+            jpeg_bytes = encode_jpeg(annotated)
+            with self._frame_lock:
+                self._latest_frame_jpeg = jpeg_bytes
+                self._latest_context = context
+            self._new_frame_event.set()
+
             if self.on_frame_processed:
                 self.on_frame_processed(context)
 
@@ -197,6 +220,22 @@ class CameraRuntime:
                 ))
 
         return context
+
+    def get_latest_frame_jpeg(self, timeout: float = 1.0) -> Optional[bytes]:
+        """Waits for next frame or returns current latest annotated frame JPEG."""
+        if self._latest_frame_jpeg is not None:
+            with self._frame_lock:
+                return self._latest_frame_jpeg
+
+        self._new_frame_event.wait(timeout=timeout)
+        self._new_frame_event.clear()
+        with self._frame_lock:
+            return self._latest_frame_jpeg
+
+    def get_latest_context(self) -> Optional[PipelineContext]:
+        """Returns latest processed pipeline context containing active detections/tracks/risks."""
+        with self._frame_lock:
+            return self._latest_context
 
     def process_frame_sync(self, packet: FramePacket) -> PipelineContext:
         """Synchronous single-frame step for testing and deterministic pipelines."""

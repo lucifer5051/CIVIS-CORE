@@ -5,8 +5,8 @@ import { ConnectionState } from '../hooks/useWebSocket';
 interface HeaderProps {
   health: HealthResponse | null;
   wsState: ConnectionState;
-  activeTab: 'dashboard' | 'config';
-  onTabChange: (tab: 'dashboard' | 'config') => void;
+  activeTab: 'live' | 'dashboard' | 'config';
+  onTabChange: (tab: 'live' | 'dashboard' | 'config') => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -34,6 +34,17 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         <nav className="flex items-center space-x-1 bg-slate-950/60 p-1 rounded-lg border border-slate-800">
+          <button
+            onClick={() => onTabChange('live')}
+            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all flex items-center space-x-1.5 ${
+              activeTab === 'live'
+                ? 'bg-cyan-500 text-slate-950 font-semibold shadow-sm'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+            <span>Live Monitor</span>
+          </button>
           <button
             onClick={() => onTabChange('dashboard')}
             className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${

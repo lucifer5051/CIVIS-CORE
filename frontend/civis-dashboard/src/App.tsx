@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Header } from './components/Header';
+import { LiveMonitoringPage } from './pages/LiveMonitoringPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { ConfigPage } from './pages/ConfigPage';
 import { useWebSocket } from './hooks/useWebSocket';
@@ -17,7 +18,7 @@ import {
 import { api } from './api/client';
 
 export const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'config'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'live' | 'dashboard' | 'config'>('live');
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [detailedHealth, setDetailedHealth] = useState<Record<string, any> | null>(null);
   const [cameras, setCameras] = useState<CameraStatus[]>([]);
@@ -90,7 +91,18 @@ export const App: React.FC = () => {
       />
 
       <main className="flex-1 overflow-x-hidden">
-        {activeTab === 'dashboard' ? (
+        {activeTab === 'live' ? (
+          <LiveMonitoringPage
+            cameras={cameras}
+            events={events}
+            tracks={tracks}
+            identities={identities}
+            reidEntities={reidEntities}
+            risks={risks}
+            alerts={alerts}
+            onRefreshData={fetchData}
+          />
+        ) : activeTab === 'dashboard' ? (
           <DashboardPage
             cameras={cameras}
             risks={risks}

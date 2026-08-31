@@ -40,9 +40,16 @@ export const RiskPanel: React.FC<RiskPanelProps> = ({
           <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
           <h2 className="text-sm font-semibold text-white tracking-wide font-['Outfit']">Explainable Risk Feed</h2>
         </div>
-        <span className="text-xs font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300">
-          {sortedRisks.length} Active
-        </span>
+        <div className="flex items-center space-x-2">
+          {alerts.length > 0 && (
+            <span className="text-xs font-mono px-2 py-0.5 rounded bg-rose-950 border border-rose-500/50 text-rose-300 font-bold">
+              {alerts.length} Alerts
+            </span>
+          )}
+          <span className="text-xs font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300">
+            {sortedRisks.length} Assessments
+          </span>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 space-y-3 divide-y divide-slate-800/40">
