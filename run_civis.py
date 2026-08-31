@@ -64,7 +64,7 @@ def create_civis_app(
     print("=" * 80)
 
     # 1. Initialize Subsystem Engines
-    cfg_engine = ConfigEngine(CivisConfig(environment="development" if not auth_enabled else "production"))
+    cfg_engine = ConfigEngine(config_dict={"environment": "development" if not auth_enabled else "production"})
     obs_engine = ObservabilityEngine(ObservabilityConfig(use_mock=use_mock))
     evd_engine = EvidenceEngine(EvidenceEngineConfig(use_mock=use_mock))
     rsk_engine = RiskEngine(RiskEngineConfig(use_mock=use_mock))
@@ -86,8 +86,7 @@ def create_civis_app(
         PipelineRuntimeConfig(
             use_mock=use_mock,
             cameras=[cam_runtime_cfg],
-        ),
-        observability=obs_engine,
+        )
     )
 
     # 2. Inject Subsystems into API Gateway
@@ -102,7 +101,7 @@ def create_civis_app(
     api_config = APIConfig(
         use_mock=use_mock,
         authentication_enabled=auth_enabled,
-        api_key=api_key if auth_enabled else None,
+        api_key=api_key,
         websocket_enabled=True,
     )
 
