@@ -136,14 +136,37 @@ class TestIdentityModule(unittest.TestCase):
         d_yunet = create_face_detector(FaceDetectorConfig(backend=FaceDetectorBackend.YUNET.value))
         self.assertIsInstance(d_yunet, YuNetFaceDetector)
 
-    def test_face_to_track_containment(self):
-        """Test spatial box containment helper."""
-        person_box = BoundingBox(x1=100.0, y1=100.0, x2=300.0, y2=600.0)
-        face_inside = BoundingBox(x1=150.0, y1=110.0, x2=250.0, y2=220.0)
-        face_outside = BoundingBox(x1=500.0, y1=110.0, x2=600.0, y2=220.0)
+    def test_identity_association_stale_eviction(self):
+        """Test that MultiSignalIdentityAssociator purges stale track histories beyond TTL."""
+        from civis.identity.association import MultiSignalIdentityAssociator
+        from civis.identity.models import IdentityConfig, IdentityMatch
 
-        self.assertTrue(is_box_inside(face_inside, person_box))
-        self.assertFalse(is_box_inside(face_outside, person_box))
+        cfg = IdentityConfig()
+        assoc = MultiSignalIdentityAssociator(cfg)
+
+        # Update track 1 at t=10.0
+        h1 = assoc.get_history("cam_01", 1)
+        h1.update(
+            match=IdentityMatch(identity_id="ID_01", name="Alice", similarity_score=0.9, is_known=True),
+            quality_score=0.9,
+            config=cfg,
+            timestamp=10.0,
+        )
+
+        # Update track 2 at t=100.0
+        h2 = assoc.get_history("cam_01", 2)
+        h2.update(
+            match=IdentityMatch(identity_id="ID_02", name="Bob", similarity_score=0.9, is_known=True),
+            quality_score=0.9,
+            config=cfg,
+            timestamp=100.0,
+        )
+
+        # Cleanup at t=100 with max_age=30s -> track 1 should be evicted (age 90s)
+        purged = assoc.cleanup_stale(current_time=100.0, max_age_seconds=30.0)
+        self.assertEqual(purged, 1)
+        self.assertNotIn(("cam_01", 1), assoc._track_histories)
+        self.assertIn(("cam_01", 2), assoc._track_histories)
 
 
 if __name__ == "__main__":

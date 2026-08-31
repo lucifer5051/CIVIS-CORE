@@ -207,6 +207,48 @@ class TestRuntimeOrchestration(unittest.TestCase):
         self.assertIn("CAM_01", metrics.per_camera_fps)
         self.assertIn("detection", metrics.per_stage_latency_ms)
 
+    def test_concurrent_camera_runtime_statistics(self):
+        """Test thread-safety of CameraRuntime counters under concurrent execution and health polling."""
+        import threading
+
+        engine = create_runtime_engine(PipelineRuntimeConfig(
+            use_mock=True,
+            cameras=[CameraRuntimeConfig(camera_id="CAM_CONCUR", queue_size=50)],
+        ))
+        cam = engine.get_camera_runtime("CAM_CONCUR")
+
+        health_reads = []
+        errors = []
+
+        def worker_process():
+            try:
+                for i in range(25):
+                    cam.process_frame_sync(_make_dummy_frame("CAM_CONCUR", i))
+            except Exception as e:
+                errors.append(e)
+
+        def health_poller():
+            try:
+                for _ in range(30):
+                    h = cam.get_health()
+                    health_reads.append(h.frames_processed)
+                    time.sleep(0.001)
+            except Exception as e:
+                errors.append(e)
+
+        t1 = threading.Thread(target=worker_process)
+        t2 = threading.Thread(target=health_poller)
+
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        self.assertEqual(len(errors), 0)
+        final_health = cam.get_health()
+        self.assertEqual(final_health.frames_received, 25)
+        self.assertEqual(final_health.frames_processed, 25)
+
 
 if __name__ == "__main__":
     unittest.main()

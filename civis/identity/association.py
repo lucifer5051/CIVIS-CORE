@@ -127,6 +127,16 @@ class MultiSignalIdentityAssociator:
             self._track_histories[key] = TrackIdentityHistory(camera_id, track_id)
         return self._track_histories[key]
 
+    def cleanup_stale(self, current_time: float, max_age_seconds: float = 60.0) -> int:
+        """Purges stale track identity histories exceeding max_age_seconds."""
+        stale_keys = [
+            k for k, v in self._track_histories.items()
+            if (current_time - v.last_updated_time) > max_age_seconds
+        ]
+        for k in stale_keys:
+            del self._track_histories[k]
+        return len(stale_keys)
+
     def reset(self, camera_id: Optional[str] = None) -> None:
         if camera_id is None:
             self._track_histories.clear()

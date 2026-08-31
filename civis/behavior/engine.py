@@ -199,6 +199,12 @@ class BehaviorEngine(BaseBehaviorEngine):
                         )
                     )
 
+        # Purge stale trajectories to prevent unbounded memory growth
+        self._trajectory_memory.cleanup_stale(
+            current_time=current_time,
+            max_age_seconds=max(60.0, self._config.max_trajectory_seconds * 2),
+        )
+
         elapsed_ms = (time.perf_counter() - start_time) * 1000.0
 
         return BehaviorResult(

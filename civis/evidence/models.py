@@ -105,6 +105,7 @@ class RetentionPolicy(BaseModel):
 class EvidenceEngineConfig(BaseModel):
     storage_directory: str = Field(default="./evidence_store", description="Root storage directory for ledger and exports")
     enable_hash_chain: bool = Field(default=True, description="Enable cryptographic hash chaining across records")
+    max_ledger_records: Optional[int] = Field(default=None, description="Max active in-memory ledger records before archiving")
     retention_policy: RetentionPolicy = Field(default_factory=RetentionPolicy)
     auto_seal_alerts: bool = Field(default=True, description="Automatically seal evidence records associated with risk alerts")
     use_mock: bool = Field(default=False, description="Whether to run in mock mode")

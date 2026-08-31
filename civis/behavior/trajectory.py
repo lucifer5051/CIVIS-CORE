@@ -1,5 +1,6 @@
+from collections import deque
 import math, time
-from typing import Dict, List, Optional, Tuple
+from typing import Deque, Dict, List, Optional, Tuple
 from civis.behavior.models import Point2D
 
 
@@ -8,20 +9,22 @@ class TrackTrajectory:
         self.camera_id = camera_id
         self.track_id = track_id
         self.max_seconds = max_seconds
-        self.positions: List[Point2D] = []
-        self.timestamps: List[float] = []
+        self.positions: Deque[Point2D] = deque()
+        self.timestamps: Deque[float] = deque()
         self.dwell_start_time: Optional[float] = None
         self.last_stationary_pos: Optional[Point2D] = None
+        self.last_update_time: float = 0.0
 
     def add_point(self, point: Point2D, timestamp: float) -> None:
         self.positions.append(point)
         self.timestamps.append(timestamp)
+        self.last_update_time = timestamp
 
-        # Trim old history
+        # O(1) popleft to trim old history
         cutoff = timestamp - self.max_seconds
         while len(self.timestamps) > 1 and self.timestamps[0] < cutoff:
-            self.timestamps.pop(0)
-            self.positions.pop(0)
+            self.timestamps.popleft()
+            self.positions.popleft()
 
     @property
     def current_position(self) -> Optional[Point2D]:
@@ -84,6 +87,16 @@ class TrajectoryMemory:
         if key not in self.trajectories:
             self.trajectories[key] = TrackTrajectory(camera_id, track_id, self.max_seconds)
         return self.trajectories[key]
+
+    def cleanup_stale(self, current_time: float, max_age_seconds: float = 60.0) -> int:
+        """Purges stale track trajectories exceeding max_age_seconds."""
+        stale_keys = [
+            k for k, v in self.trajectories.items()
+            if (current_time - v.last_update_time) > max_age_seconds
+        ]
+        for k in stale_keys:
+            del self.trajectories[k]
+        return len(stale_keys)
 
     def reset(self, camera_id: Optional[str] = None) -> None:
         if camera_id is None:

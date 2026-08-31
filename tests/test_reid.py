@@ -223,6 +223,44 @@ class TestCrossCameraReID(unittest.TestCase):
         self.assertEqual(len(res.global_entities), 1)
         self.assertEqual(res.global_entities[0].primary_identity_id, "PERSON_ALICE")
 
+    def test_reid_engine_concurrent_processing_and_automatic_cleanup(self):
+        """Test thread-safety and automatic gallery cleanup during active processing."""
+        import threading
+
+        config = ReIDEngineConfig(use_mock=True, gallery_ttl_seconds=5.0)
+        engine = create_cross_camera_reid_engine(config)
+
+        # Initial frame at t=0.0s
+        p1 = _make_frame_packet("CAM_01", 1, 0.0)
+        t1 = _make_track_result("CAM_01", 1, 0.0, [1])
+        engine.process({"CAM_01": p1}, {"CAM_01": t1})
+        self.assertEqual(len(engine._gallery.get_all_global_entities()), 1)
+
+        # Concurrent processing from multiple cameras
+        errors = []
+
+        def worker_cam(cam_id: str):
+            try:
+                for i in range(10):
+                    p = _make_frame_packet(cam_id, i + 1, 10.0 + i)
+                    t = _make_track_result(cam_id, i + 1, 10.0 + i, [100 + i])
+                    engine.process({cam_id: p}, {cam_id: t})
+            except Exception as e:
+                errors.append(e)
+
+        threads = [
+            threading.Thread(target=worker_cam, args=("CAM_01",)),
+            threading.Thread(target=worker_cam, args=("CAM_02",)),
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        self.assertEqual(len(errors), 0)
+        # Track 1 from t=0.0s should have been automatically cleaned up since t=19.0s >> 5.0s TTL
+        self.assertIsNone(engine._gallery.get_track_entry("CAM_01", 1))
+
 
 if __name__ == "__main__":
     unittest.main()

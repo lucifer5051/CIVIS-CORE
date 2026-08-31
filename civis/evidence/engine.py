@@ -38,7 +38,10 @@ class EvidenceEngine(BaseEvidenceEngine):
     def __init__(self, config: Optional[EvidenceEngineConfig] = None) -> None:
         cfg = config if config is not None else EvidenceEngineConfig()
         super().__init__(cfg)
-        self._ledger = EvidenceLedger(enable_hash_chain=cfg.enable_hash_chain)
+        self._ledger = EvidenceLedger(
+            enable_hash_chain=cfg.enable_hash_chain,
+            max_records=cfg.max_ledger_records,
+        )
         self._retention = RetentionManager(cfg.retention_policy)
 
     def reset(self) -> None:

@@ -14,12 +14,16 @@ class EvidenceLedger:
     """
     Append-only, cryptographically hash-chained evidence ledger.
     Guarantees mathematical tamper-evidence and fast multi-indexed forensic queries.
+    Supports bounded in-memory working sets with explicit archive boundary tracking.
     """
 
-    def __init__(self, enable_hash_chain: bool = True) -> None:
+    def __init__(self, enable_hash_chain: bool = True, max_records: Optional[int] = None) -> None:
         self.enable_hash_chain = enable_hash_chain
+        self.max_records = max_records
         self._records: List[EvidenceRecord] = []
         self._last_hash: str = GENESIS_HASH
+        self._archived_count: int = 0
+        self._archived_boundary_hash: str = GENESIS_HASH
 
         # Fast lookup indexes
         self._by_id: Dict[str, EvidenceRecord] = {}
@@ -27,6 +31,18 @@ class EvidenceLedger:
         self._by_entity: Dict[str, List[EvidenceRecord]] = {}
         self._by_track: Dict[Tuple[str, int], List[EvidenceRecord]] = {}
         self._by_stage: Dict[EvidenceStage, List[EvidenceRecord]] = {}
+
+    @property
+    def archived_count(self) -> int:
+        return self._archived_count
+
+    @property
+    def archived_boundary_hash(self) -> str:
+        return self._archived_boundary_hash
+
+    @property
+    def total_records_count(self) -> int:
+        return self._archived_count + len(self._records)
 
     def append(
         self,
@@ -47,7 +63,7 @@ class EvidenceLedger:
         actor: str = "CIVIS_PIPELINE",
     ) -> EvidenceRecord:
         """Appends a new evidence record and updates the cryptographic hash chain."""
-        seq_num = len(self._records)
+        seq_num = self._archived_count + len(self._records)
         prev_hash = self._last_hash if self.enable_hash_chain else ""
 
         rec_hash = compute_record_hash(
@@ -103,6 +119,31 @@ class EvidenceLedger:
         if track_id is not None:
             self._by_track.setdefault((camera_id, track_id), []).append(record)
 
+        # Enforce bounded in-memory working set without altering cryptographic chain
+        if self.max_records is not None and len(self._records) > self.max_records:
+            excess = len(self._records) - self.max_records
+            for old_rec in self._records[:excess]:
+                self._by_id.pop(old_rec.evidence_id, None)
+                if old_rec.camera_id in self._by_camera and old_rec in self._by_camera[old_rec.camera_id]:
+                    self._by_camera[old_rec.camera_id].remove(old_rec)
+                if old_rec.stage in self._by_stage and old_rec in self._by_stage[old_rec.stage]:
+                    self._by_stage[old_rec.stage].remove(old_rec)
+                if old_rec.global_entity_id and old_rec.global_entity_id in self._by_entity and old_rec in self._by_entity[old_rec.global_entity_id]:
+                    self._by_entity[old_rec.global_entity_id].remove(old_rec)
+                if old_rec.identity_id:
+                    ident_key = f"ident_{old_rec.identity_id}"
+                    if ident_key in self._by_entity and old_rec in self._by_entity[ident_key]:
+                        self._by_entity[ident_key].remove(old_rec)
+                if old_rec.track_id is not None:
+                    trk_key = (old_rec.camera_id, old_rec.track_id)
+                    if trk_key in self._by_track and old_rec in self._by_track[trk_key]:
+                        self._by_track[trk_key].remove(old_rec)
+
+                self._archived_boundary_hash = old_rec.record_hash
+                self._archived_count += 1
+
+            self._records = self._records[excess:]
+
         return record
 
     def get_record_by_id(self, evidence_id: str) -> Optional[EvidenceRecord]:
@@ -113,23 +154,29 @@ class EvidenceLedger:
 
     def verify_integrity(self) -> Tuple[bool, Optional[str]]:
         """
-        Traverses the entire ledger, verifying that every record's hash and
-        hash-chain linkage match canonical mathematical hashes.
+        Traverses the entire ledger working set, verifying that every record's hash and
+        hash-chain linkage match canonical mathematical hashes anchored from the archive root.
         """
-        expected_prev_hash = GENESIS_HASH
+        if not self._records:
+            return True, None
+
+        expected_prev_hash = (
+            self._archived_boundary_hash if self._archived_count > 0 else GENESIS_HASH
+        )
 
         for idx, record in enumerate(self._records):
-            if record.sequence_number != idx:
+            expected_seq = self._archived_count + idx
+            if record.sequence_number != expected_seq:
                 return (
                     False,
-                    f"Integrity Violation: Sequence number mismatch at index {idx} (found {record.sequence_number})",
+                    f"Integrity Violation: Sequence number mismatch at working set index {idx} (expected {expected_seq}, found {record.sequence_number})",
                 )
 
             if self.enable_hash_chain:
                 if record.previous_record_hash != expected_prev_hash:
                     return (
                         False,
-                        f"Integrity Violation: Broken hash chain at index {idx} (evidence_id={record.evidence_id}). Expected previous hash {expected_prev_hash}, got {record.previous_record_hash}",
+                        f"Integrity Violation: Broken hash chain at working set index {idx} (evidence_id={record.evidence_id}). Expected previous hash {expected_prev_hash}, got {record.previous_record_hash}",
                     )
 
             recalculated_hash = compute_record_hash(
@@ -205,6 +252,8 @@ class EvidenceLedger:
     def reset(self) -> None:
         self._records.clear()
         self._last_hash = GENESIS_HASH
+        self._archived_count = 0
+        self._archived_boundary_hash = GENESIS_HASH
         self._by_id.clear()
         self._by_camera.clear()
         self._by_entity.clear()

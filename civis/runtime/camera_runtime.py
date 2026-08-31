@@ -58,6 +58,7 @@ class CameraRuntime:
         self._frames_processed = 0
         self._total_errors = 0
         self._last_processed_time = 0.0
+        self._stats_lock = threading.Lock()
 
         # Optional output callback
         self.on_frame_processed: Optional[Callable[[PipelineContext], None]] = None
@@ -129,12 +130,14 @@ class CameraRuntime:
                         time.sleep(0.1)
                     continue
 
-                self._frames_received += 1
+                with self._stats_lock:
+                    self._frames_received += 1
                 self._queue.put(packet)
 
             except Exception as e:
                 logger.error(f"Error in ingest loop for {self.camera_id}: {e}")
-                self._total_errors += 1
+                with self._stats_lock:
+                    self._total_errors += 1
                 if self.event_bus:
                     self.event_bus.publish(RuntimeEvent(
                         event_type=RuntimeEventType.CAMERA_ERROR,
@@ -170,8 +173,9 @@ class CameraRuntime:
         try:
             context = self.pipeline.execute(context)
             total_latency_ms = (time.perf_counter() - start_t) * 1000.0
-            self._frames_processed += 1
-            self._last_processed_time = time.time()
+            with self._stats_lock:
+                self._frames_processed += 1
+                self._last_processed_time = time.time()
 
             # Record stats
             self.health_monitor.record_frame_processed(self.camera_id, total_latency_ms)
@@ -183,7 +187,8 @@ class CameraRuntime:
 
         except Exception as e:
             logger.error(f"Unhandled pipeline failure on camera {self.camera_id}: {e}", exc_info=True)
-            self._total_errors += 1
+            with self._stats_lock:
+                self._total_errors += 1
             if self.event_bus:
                 self.event_bus.publish(RuntimeEvent(
                     event_type=RuntimeEventType.CAMERA_ERROR,
@@ -195,7 +200,8 @@ class CameraRuntime:
 
     def process_frame_sync(self, packet: FramePacket) -> PipelineContext:
         """Synchronous single-frame step for testing and deterministic pipelines."""
-        self._frames_received += 1
+        with self._stats_lock:
+            self._frames_received += 1
         return self._process_single_frame(packet)
 
     def pause(self) -> None:
@@ -249,18 +255,24 @@ class CameraRuntime:
         stages_health = {stage.name: stage.get_health() for stage in self.pipeline.stages}
         is_conn = self.stream_manager.get_status(self.camera_id) == CameraStatus.RUNNING
 
+        with self._stats_lock:
+            recv = self._frames_received
+            proc = self._frames_processed
+            errs = self._total_errors
+            last_ts = self._last_processed_time
+
         return CameraHealth(
             camera_id=self.camera_id,
             state=self._state,
             is_connected=is_conn,
-            frames_received=self._frames_received,
-            frames_processed=self._frames_processed,
+            frames_received=recv,
+            frames_processed=proc,
             frames_dropped=self._queue.dropped_count,
-            error_count=self._total_errors,
+            error_count=errs,
             reconnect_count=0,
             current_fps=self.health_monitor.get_camera_fps(self.camera_id),
             avg_latency_ms=self.health_monitor.get_camera_avg_latency(self.camera_id),
             queue_depth=self._queue.qsize(),
-            last_frame_timestamp=self._last_processed_time,
+            last_frame_timestamp=last_ts,
             stages=stages_health,
         )

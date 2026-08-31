@@ -118,6 +118,12 @@ class IdentityEngine:
 
             associated_identities.append(assoc)
 
+        # Purge stale track histories to prevent memory leaks
+        self._associator.cleanup_stale(
+            current_time=packet.timestamp,
+            max_age_seconds=60.0,
+        )
+
         elapsed_ms = (time.perf_counter() - start_time) * 1000.0
 
         return IdentityResult(

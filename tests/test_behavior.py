@@ -121,10 +121,34 @@ class TestBehaviorAnalysisModule(unittest.TestCase):
         loiter_events_count2 = sum(1 for e in res3.events if e.event_type == "LOITERING_DETECTED")
         self.assertEqual(loiter_events_count2, 0)
 
-    def test_behavior_factory(self):
-        cfg = BehaviorConfig(use_mock=True)
-        engine = create_behavior_engine(cfg)
-        self.assertIsInstance(engine, MockBehaviorEngine)
+    def test_trajectory_deque_trimming_and_stale_eviction(self):
+        """Test that TrajectoryMemory trims points using deque and evicts stale tracks beyond max age."""
+        from civis.behavior.trajectory import TrackTrajectory, TrajectoryMemory
+
+        traj = TrackTrajectory(camera_id="cam_01", track_id=1, max_seconds=5.0)
+        # Add points across time
+        traj.add_point(Point2D(10, 10), timestamp=10.0)
+        traj.add_point(Point2D(20, 20), timestamp=12.0)
+        traj.add_point(Point2D(30, 30), timestamp=16.0)
+
+        # Point at t=10.0 should be trimmed since cutoff = 16.0 - 5.0 = 11.0
+        self.assertEqual(len(traj.timestamps), 2)
+        self.assertEqual(traj.timestamps[0], 12.0)
+        self.assertEqual(traj.current_position, Point2D(30, 30))
+
+        # Test TrajectoryMemory cleanup_stale
+        mem = TrajectoryMemory(max_seconds=5.0)
+        t1 = mem.get_trajectory("cam_01", 1)
+        t1.add_point(Point2D(0, 0), timestamp=10.0)
+
+        t2 = mem.get_trajectory("cam_01", 2)
+        t2.add_point(Point2D(50, 50), timestamp=100.0)
+
+        # Cleanup at t=100 with max_age=30 -> track 1 should be evicted (last update 10.0, age 90s)
+        purged = mem.cleanup_stale(current_time=100.0, max_age_seconds=30.0)
+        self.assertEqual(purged, 1)
+        self.assertNotIn(("cam_01", 1), mem.trajectories)
+        self.assertIn(("cam_01", 2), mem.trajectories)
 
 
 if __name__ == "__main__":

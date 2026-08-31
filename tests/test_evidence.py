@@ -241,6 +241,43 @@ class TestEvidenceEngine(unittest.TestCase):
         self.assertIn("ev_fresh_low", retain_ids, "Fresh record must be retained!")
         self.assertIn("ev_old_low", purge_ids, "Old low-risk record must be purged!")
 
+    def test_bounded_ledger_memory_and_archive_boundary_integrity(self):
+        """Test bounded ledger memory retention preserves sequence numbers and cryptographic verification."""
+        ledger = EvidenceLedger(enable_hash_chain=True, max_records=3)
+
+        records = []
+        for i in range(6):
+            r = ledger.append(
+                evidence_id=f"ev_{i}",
+                stage=EvidenceStage.DETECTION,
+                camera_id="CAM_01",
+                frame_id=f"f_{i}",
+                frame_number=i,
+                timestamp=float(i * 10),
+                payload={"index": i, "data": f"content_{i}"},
+            )
+            records.append(r)
+
+        # Working set should only retain last 3 records (indices 3, 4, 5)
+        self.assertEqual(len(ledger.get_all_records()), 3)
+        self.assertEqual(ledger.archived_count, 3)
+        self.assertEqual(ledger.total_records_count, 6)
+
+        retained = ledger.get_all_records()
+        self.assertEqual([r.sequence_number for r in retained], [3, 4, 5])
+        self.assertEqual(ledger.archived_boundary_hash, records[2].record_hash)
+
+        # Integrity verification must pass anchored at archive boundary
+        is_valid, err = ledger.verify_integrity()
+        self.assertTrue(is_valid)
+        self.assertIsNone(err)
+
+        # Tampering with a retained record must be caught immediately
+        retained[1].payload["data"] = "TAMPERED_CONTENT"
+        is_valid_tamp, err_tamp = ledger.verify_integrity()
+        self.assertFalse(is_valid_tamp)
+        self.assertIn("Tampered record content", err_tamp)
+
 
 if __name__ == "__main__":
     unittest.main()
