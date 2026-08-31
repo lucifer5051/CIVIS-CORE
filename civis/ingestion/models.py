@@ -38,6 +38,8 @@ class CameraConfig(BaseModel):
         default=None, description="Maximum reconnect attempts (None for infinite retries)"
     )
     rtsp_transport: str = Field(default="tcp", description="RTSP transport protocol ('tcp' or 'udp')")
+    width: Optional[int] = Field(default=None, description="Optional target capture width in pixels")
+    height: Optional[int] = Field(default=None, description="Optional target capture height in pixels")
 
     def model_post_init(self, __context: Any) -> None:
         if self.drop_outdated_frames is None:

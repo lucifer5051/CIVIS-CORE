@@ -82,6 +82,12 @@ class OpenCVVideoSource(VideoSource):
         if self._config.drop_outdated_frames:
             cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
+        # Apply target resolution if configured
+        if self._config.width is not None and self._config.width > 0:
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, float(self._config.width))
+        if self._config.height is not None and self._config.height > 0:
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, float(self._config.height))
+
         return cap
 
     def _capture_loop(self) -> None:

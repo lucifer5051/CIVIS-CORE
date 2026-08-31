@@ -1,7 +1,9 @@
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 from pydantic import BaseModel, Field
+
+from civis.ingestion.models import SourceType
 
 
 class RuntimeState(str, Enum):
@@ -39,7 +41,10 @@ class StageConfig(BaseModel):
 class CameraRuntimeConfig(BaseModel):
     camera_id: str
     name: str = ""
-    source: str = ""
+    source: Union[str, int] = ""
+    source_type: Optional[SourceType] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
     target_fps: float = Field(default=30.0, ge=1.0)
     frame_interval: int = Field(default=1, ge=1, description="Process every N-th frame (frame skip)")
     queue_size: int = Field(default=10, ge=1, description="Bounded frame queue capacity")

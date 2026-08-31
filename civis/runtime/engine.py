@@ -100,13 +100,24 @@ class RuntimeEngine(BasePipelineRuntime):
 
         # Register in StreamManager if stream config provided or not present
         if cam_id not in self.stream_manager.list_cameras():
+            src_type = camera_config.source_type
+            if src_type is None:
+                if isinstance(camera_config.source, int) or (isinstance(camera_config.source, str) and camera_config.source.isdigit()):
+                    src_type = SourceType.WEBCAM
+                elif isinstance(camera_config.source, str) and (camera_config.source.startswith("rtsp://") or camera_config.source.startswith("rtsps://")):
+                    src_type = SourceType.RTSP
+                else:
+                    src_type = SourceType.FILE
+
             s_cfg = stream_config or CameraConfig(
                 camera_id=cam_id,
                 name=camera_config.name or cam_id,
-                source_type=SourceType.FILE,
-                source=camera_config.source if camera_config.source else "mock_stream.mp4",
+                source_type=src_type,
+                source=camera_config.source if camera_config.source != "" else "mock_stream.mp4",
                 fps_limit=camera_config.target_fps,
-                loop_file=True,
+                width=camera_config.width,
+                height=camera_config.height,
+                loop_file=True if src_type == SourceType.FILE else False,
             )
             self.stream_manager.add_camera(s_cfg)
 
