@@ -48,7 +48,7 @@ class SystemHealthAggregator:
 
         if has_critical_findings or has_runtime_error:
             status = SystemHealthStatus.UNHEALTHY
-        elif findings or (runtime_health and any(h.error_count > 0 for h in runtime_health.camera_health.values())):
+        elif findings or (runtime_health and any(h.error_count >= 3 for h in runtime_health.camera_health.values())):
             status = SystemHealthStatus.DEGRADED
 
         return SystemHealthSnapshot(

@@ -137,6 +137,17 @@ class APIEngine(BaseAPIEngine):
 
     def attach_runtime_events(self, runtime: Any) -> None:
         """Subscribes to runtime event bus and camera processing to forward live telemetry to WebSockets."""
+        # Capture the running event loop NOW (called from the main async context)
+        try:
+            _loop = asyncio.get_event_loop()
+        except RuntimeError:
+            _loop = None
+
+        def _safe_broadcast(msg: dict) -> None:
+            """Thread-safe broadcast: schedules coroutine into the uvicorn event loop."""
+            if _loop is not None and _loop.is_running():
+                asyncio.run_coroutine_threadsafe(self.ws_manager.broadcast(msg), _loop)
+
         if hasattr(runtime, "event_bus") and runtime.event_bus is not None:
             def _forward_event(evt):
                 msg = {
@@ -147,20 +158,23 @@ class APIEngine(BaseAPIEngine):
                     "message": getattr(evt, "message", ""),
                     "data": getattr(evt, "details", {}) or getattr(evt, "data", {}),
                 }
-                try:
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        asyncio.create_task(self.ws_manager.broadcast(msg))
-                except Exception:
-                    pass
+                _safe_broadcast(msg)
 
             runtime.event_bus.subscribe(None, _forward_event)
 
         # Attach frame telemetry callback to camera runtimes
+        # Throttle: send WebSocket telemetry every 5th processed frame to avoid flooding
+        _frame_counters: dict = {}
         if hasattr(runtime, "_cameras"):
             for cam_id, cam_rt in runtime._cameras.items():
+                _frame_counters[cam_id] = 0
+
                 def _make_telemetry_callback(cid):
+                    _counter = [0]  # mutable counter per camera
                     def _on_processed(ctx):
+                        _counter[0] += 1
+                        if _counter[0] % 5 != 0:  # throttle: 1 WS message per 5 frames
+                            return
                         telemetry = {
                             "event_type": "pipeline_telemetry",
                             "camera_id": cid,
@@ -216,12 +230,7 @@ class APIEngine(BaseAPIEngine):
                                 ],
                             },
                         }
-                        try:
-                            loop = asyncio.get_event_loop()
-                            if loop.is_running():
-                                asyncio.create_task(self.ws_manager.broadcast(telemetry))
-                        except Exception:
-                            pass
+                        _safe_broadcast(telemetry)
                     return _on_processed
 
                 cam_rt.on_frame_processed = _make_telemetry_callback(cam_id)
