@@ -96,32 +96,44 @@ class APIEngine(BaseAPIEngine):
             expected_key=self.config.api_key,
         )
 
-        self.app.include_router(create_health_router(self.dependencies, auth_dep))
-        self.app.include_router(create_cameras_router(self.dependencies, auth_dep))
-        self.app.include_router(create_detections_router(self.dependencies, auth_dep))
-        self.app.include_router(create_tracks_router(self.dependencies, auth_dep))
-        self.app.include_router(create_identities_router(self.dependencies, auth_dep))
-        self.app.include_router(create_events_router(self.dependencies, auth_dep))
-        self.app.include_router(create_risks_router(self.dependencies, auth_dep))
-        self.app.include_router(create_evidence_router(self.dependencies, auth_dep))
-        self.app.include_router(create_runtime_router(self.dependencies, auth_dep))
-        self.app.include_router(create_config_router(self.dependencies, auth_dep))
+        routers = [
+            create_health_router(self.dependencies, auth_dep),
+            create_cameras_router(self.dependencies, auth_dep),
+            create_detections_router(self.dependencies, auth_dep),
+            create_tracks_router(self.dependencies, auth_dep),
+            create_identities_router(self.dependencies, auth_dep),
+            create_events_router(self.dependencies, auth_dep),
+            create_risks_router(self.dependencies, auth_dep),
+            create_evidence_router(self.dependencies, auth_dep),
+            create_runtime_router(self.dependencies, auth_dep),
+            create_config_router(self.dependencies, auth_dep),
+        ]
+
+        for r in routers:
+            self.app.include_router(r)
+            self.app.include_router(r, prefix="/api")
 
     def _setup_websocket(self) -> None:
         if not self.config.websocket_enabled:
             return
 
-        @self.app.websocket("/ws/events")
-        async def websocket_events_endpoint(websocket: WebSocket):
+        async def _handle_ws(websocket: WebSocket):
             await self.ws_manager.connect(websocket)
             try:
                 while True:
-                    # Keep connection alive, listen for client pings
-                    data = await websocket.receive_text()
+                    await websocket.receive_text()
             except WebSocketDisconnect:
                 await self.ws_manager.disconnect(websocket)
             except Exception:
                 await self.ws_manager.disconnect(websocket)
+
+        @self.app.websocket("/ws/events")
+        async def websocket_events_endpoint(websocket: WebSocket):
+            await _handle_ws(websocket)
+
+        @self.app.websocket("/api/ws/events")
+        async def websocket_api_events_endpoint(websocket: WebSocket):
+            await _handle_ws(websocket)
 
     def attach_runtime_events(self, runtime: Any) -> None:
         """Subscribes to runtime event bus and camera processing to forward live telemetry to WebSockets."""
