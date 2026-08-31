@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  civis-core:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: civis-core:latest
+    container_name: civis-core-pipeline
+    restart: unless-stopped
+    ports:
+      - "${CIVIS_API_PORT:-8000}:8000"
+    environment:
+      - CIVIS_ENVIRONMENT=${CIVIS_ENVIRONMENT:-production}
+      - CIVIS_API_KEY=${CIVIS_API_KEY:-civis_prod_secret_key_change_me}
+      - CIVIS_API_AUTH_ENABLED=${CIVIS_API_AUTH_ENABLED:-true}
+      - CIVIS_LOG_LEVEL=${CIVIS_LOG_LEVEL:-INFO}
+      - CIVIS_STORAGE_ROOT=/var/lib/civis
+      - CIVIS_EVIDENCE_DIR=/var/lib/civis/evidence
+      - ENABLE_OPENTELEMETRY=${ENABLE_OPENTELEMETRY:-false}
+    volumes:
+      - civis-evidence:/var/lib/civis/evidence
+      - civis-logs:/var/log/civis
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/health/liveness"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 1G
+
+volumes:
+  civis-evidence:
+    name: civis_evidence_data
+  civis-logs:
+    name: civis_runtime_logs

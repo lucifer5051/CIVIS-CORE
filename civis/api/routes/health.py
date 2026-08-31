@@ -39,6 +39,31 @@ def create_health_router(deps: APIDependencies, auth_dep: Any) -> APIRouter:
             total_cameras=total_cams,
         )
 
+    @r.get("/liveness", summary="Process liveness probe for container orchestrators")
+    async def get_liveness() -> Dict[str, Any]:
+        return {
+            "status": "alive",
+            "timestamp": time.time(),
+        }
+
+    @r.get("/readiness", summary="Readiness probe verifying subsystem availability")
+    async def get_readiness() -> Dict[str, Any]:
+        rt = deps.get_runtime_engine()
+        obs = deps.get_observability_engine()
+        cfg = deps.get_config_engine()
+
+        is_ready = bool(rt and obs and cfg)
+        return {
+            "status": "ready" if is_ready else "not_ready",
+            "timestamp": time.time(),
+            "subsystems": {
+                "runtime": rt is not None,
+                "observability": obs is not None,
+                "config": cfg is not None,
+                "evidence": deps.get_evidence_engine() is not None,
+            },
+        }
+
     @r.get("/detailed", summary="Get detailed health & diagnostics snapshot")
     async def get_detailed_health() -> Dict[str, Any]:
         obs = deps.get_observability_engine()
@@ -69,5 +94,36 @@ def create_health_router(deps: APIDependencies, auth_dep: Any) -> APIRouter:
             } if obs_snap else {},
         }
         return result
+
+    @r.get("/metrics", summary="Prometheus-formatted plaintext metrics exposition")
+    async def get_metrics():
+        from fastapi.responses import PlainTextResponse
+        obs = deps.get_observability_engine()
+        rt = deps.get_runtime_engine()
+
+        lines = [
+            "# HELP civis_up System availability flag (1 = up)",
+            "# TYPE civis_up gauge",
+            "civis_up 1",
+        ]
+
+        if rt:
+            health = rt.get_health()
+            lines.extend([
+                "# HELP civis_active_cameras Number of currently active camera streams",
+                "# TYPE civis_active_cameras gauge",
+                f"civis_active_cameras {health.active_cameras}",
+                "# HELP civis_frames_processed_total Total video frames processed",
+                "# TYPE civis_frames_processed_total counter",
+                f"civis_frames_processed_total {health.total_frames_processed}",
+                "# HELP civis_frames_dropped_total Total video frames dropped under load",
+                "# TYPE civis_frames_dropped_total counter",
+                f"civis_frames_dropped_total {health.total_frames_dropped}",
+                "# HELP civis_errors_total Total pipeline execution errors",
+                "# TYPE civis_errors_total counter",
+                f"civis_errors_total {health.total_errors}",
+            ])
+
+        return PlainTextResponse("\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
 
     return r
