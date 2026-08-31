@@ -135,7 +135,13 @@ class RuntimeEngine(BasePipelineRuntime):
         evd_cfg = stages_cfg.get("evidence", StageConfig(name="evidence", enabled=self._config.enable_evidence_logging))
 
         # Instantiate per-camera sub-engines
-        detector = create_detector(DetectorConfig(use_mock=use_mock))
+        detector = create_detector(DetectorConfig(
+            use_mock=use_mock,
+            model_path="yolo12s.pt",   # small model: far better accuracy than nano, still real-time on RTX 3050
+            device="cuda",             # auto-selects cuda:0 if available, else CPU
+            conf_threshold=0.25,       # standard confidence threshold
+            iou_threshold=0.45,
+        ))
         tracker = create_tracker(TrackerConfig(use_mock=use_mock))
         identity_engine = create_identity_engine(IdentityConfig(use_mock=use_mock))
         behavior_engine = create_behavior_engine(BehaviorConfig(use_mock=use_mock))

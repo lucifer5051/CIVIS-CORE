@@ -1,6 +1,7 @@
 import logging
 import time
 from typing import List, Optional
+import numpy as np
 import torch
 
 from civis.detection.base import BaseDetector
@@ -22,16 +23,54 @@ class YOLO12Detector(BaseDetector):
         self._model = self._load_model(config.model_path)
 
     def _resolve_device(self, requested_device: str) -> str:
-        if requested_device.lower() in ("cuda", "gpu", "0") and not torch.cuda.is_available():
-            logger.warning("CUDA requested for YOLO12 detector, but CUDA is unavailable. Falling back to CPU.")
-            return "cpu"
-        return requested_device
+        req = requested_device.lower().strip()
+        cuda_ok = torch.cuda.is_available()
+
+        if req in ("auto", ""):
+            device = "cuda:0" if cuda_ok else "cpu"
+        elif req in ("cuda", "gpu", "0", "cuda:0"):
+            if not cuda_ok:
+                logger.warning(
+                    "CUDA explicitly requested but torch.cuda.is_available() is False. "
+                    "Ensure torch+cu124 (or matching) is installed. Falling back to CPU."
+                )
+                device = "cpu"
+            else:
+                device = "cuda:0"
+        else:
+            device = requested_device  # cpu or explicit device string
+
+        if cuda_ok and device.startswith("cuda"):
+            gpu_name = torch.cuda.get_device_name(0)
+            vram_mb = torch.cuda.get_device_properties(0).total_memory // (1024 * 1024)
+            logger.info(
+                "[GPU] INFERENCE DEVICE : %s | %s | VRAM: %d MB",
+                device, gpu_name, vram_mb
+            )
+        else:
+            logger.info("[CPU] INFERENCE DEVICE : cpu (CUDA unavailable or not selected)")
+
+        return device
 
     def _load_model(self, model_path: str):
         from ultralytics import YOLO
+        import numpy as np
 
-        logger.info("Loading YOLO model from: %s on device: %s", model_path, self._device)
+        logger.info("Loading YOLO model: %s  →  device: %s", model_path, self._device)
         model = YOLO(model_path)
+
+        # GPU warmup: run one dummy inference so CUDA kernels are compiled
+        # before live frames arrive. Not counted as real inference time.
+        if self._device.startswith("cuda"):
+            try:
+                dummy = np.zeros((640, 640, 3), dtype=np.uint8)
+                model.predict(source=dummy, device=self._device, verbose=False, imgsz=640)
+                logger.info("[GPU] Model warmup complete. YOLO ready on %s.", self._device)
+            except Exception as exc:
+                logger.warning("GPU warmup failed (non-fatal): %s", exc)
+        else:
+            logger.info("[CPU] Model loaded. No GPU warmup needed.")
+
         return model
 
     def detect(self, packet: FramePacket) -> DetectionResult:
