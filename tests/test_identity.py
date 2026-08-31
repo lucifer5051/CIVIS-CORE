@@ -1,10 +1,23 @@
 import unittest
 import numpy as np
 
-from civis.detection.models import BoundingBox, Detection, DetectionResult
-from civis.identity.engine import MockIdentityEngine
+from civis.detection.models import BoundingBox
+from civis.identity.engine import IdentityEngine, MockIdentityEngine
 from civis.identity.factory import create_identity_engine
-from civis.identity.models import IdentityConfig, IdentityState
+from civis.identity.face_detector import (
+    HeuristicFaceDetector,
+    MockFaceDetector,
+    YuNetFaceDetector,
+    SCRFDFaceDetector,
+    create_face_detector,
+    is_box_inside,
+)
+from civis.identity.models import (
+    FaceDetectorBackend,
+    FaceDetectorConfig,
+    IdentityConfig,
+    IdentityState,
+)
 from civis.ingestion.models import FramePacket
 from civis.tracking.models import TrackState, TrackedObject, TrackResult
 
@@ -20,7 +33,7 @@ class TestIdentityModule(unittest.TestCase):
         self.engine = MockIdentityEngine(self.config)
 
     def _make_dummy_data(self, cam_id: str, track_id: int, frame_num: int):
-        # 100x100 BGR frame
+        # 200x200 BGR frame
         frame = np.ones((200, 200, 3), dtype=np.uint8) * 120
         pkt = FramePacket.create(camera_id=cam_id, frame_number=frame_num, frame=frame)
 
@@ -80,12 +93,57 @@ class TestIdentityModule(unittest.TestCase):
         pkt, tr = self._make_dummy_data("cam_privacy", track_id=1, frame_num=1)
         res = self.engine.process(pkt, tr)
         self.assertFalse(self.config.store_face_crops)
-        # IdentityResult output contains AssociatedIdentity records without persisting raw image tensors
 
     def test_identity_factory(self):
         cfg = IdentityConfig(use_mock=True)
         engine = create_identity_engine(cfg)
         self.assertIsInstance(engine, MockIdentityEngine)
+
+    def test_mock_face_detector_landmarks(self):
+        """Test mock face detector provides accurate bounding box and 5 landmarks."""
+        detector = MockFaceDetector()
+        pkt, tr = self._make_dummy_data("cam_test", track_id=1, frame_num=1)
+        crops = detector.detect_faces(pkt, tr)
+
+        self.assertEqual(len(crops), 1)
+        crop = crops[0]
+        self.assertIsNotNone(crop.face_bbox)
+        self.assertIsNotNone(crop.landmarks)
+        self.assertEqual(len(crop.landmarks), 5)
+        self.assertGreater(crop.confidence, 0.8)
+
+    def test_yunet_detector_fallback_behavior(self):
+        """Test YuNet detector gracefully falls back if neural weights are not present."""
+        cfg = FaceDetectorConfig(backend="yunet", model_path="non_existent_yunet.onnx")
+        detector = YuNetFaceDetector(cfg)
+        pkt, tr = self._make_dummy_data("cam_test", track_id=1, frame_num=1)
+        crops = detector.detect_faces(pkt, tr)
+
+        self.assertEqual(len(crops), 1)
+        self.assertIsNotNone(crops[0].face_bbox)
+
+    def test_face_detector_factory_backends(self):
+        """Test factory instantiation of all supported backends."""
+        d_mock = create_face_detector(FaceDetectorConfig(backend=FaceDetectorBackend.MOCK.value))
+        self.assertIsInstance(d_mock, MockFaceDetector)
+
+        d_heur = create_face_detector(FaceDetectorConfig(backend=FaceDetectorBackend.HEURISTIC.value))
+        self.assertIsInstance(d_heur, HeuristicFaceDetector)
+
+        d_scrfd = create_face_detector(FaceDetectorConfig(backend=FaceDetectorBackend.SCRFD.value))
+        self.assertIsInstance(d_scrfd, SCRFDFaceDetector)
+
+        d_yunet = create_face_detector(FaceDetectorConfig(backend=FaceDetectorBackend.YUNET.value))
+        self.assertIsInstance(d_yunet, YuNetFaceDetector)
+
+    def test_face_to_track_containment(self):
+        """Test spatial box containment helper."""
+        person_box = BoundingBox(x1=100.0, y1=100.0, x2=300.0, y2=600.0)
+        face_inside = BoundingBox(x1=150.0, y1=110.0, x2=250.0, y2=220.0)
+        face_outside = BoundingBox(x1=500.0, y1=110.0, x2=600.0, y2=220.0)
+
+        self.assertTrue(is_box_inside(face_inside, person_box))
+        self.assertFalse(is_box_inside(face_outside, person_box))
 
 
 if __name__ == "__main__":

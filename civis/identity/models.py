@@ -13,12 +13,30 @@ class IdentityState(str, Enum):
     UNVERIFIED = "unverified"
 
 
+class FaceDetectorBackend(str, Enum):
+    YUNET = "yunet"
+    SCRFD = "scrfd"
+    HEURISTIC = "heuristic"
+    MOCK = "mock"
+
+
+@dataclass
+class FaceDetection:
+    bbox: BoundingBox
+    confidence: float = 1.0
+    landmarks: Optional[List[Tuple[float, float]]] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
 @dataclass
 class FaceCrop:
     face_id: str
     track_id: int
     camera_id: str
-    bbox: BoundingBox
+    bbox: BoundingBox  # Track bounding box
+    face_bbox: Optional[BoundingBox] = None  # Exact detected face bounding box
+    landmarks: Optional[List[Tuple[float, float]]] = None  # 5 facial landmarks
+    confidence: float = 1.0
     crop_img: Optional[np.ndarray] = None
     quality_score: float = 0.0
     is_valid: bool = False
@@ -82,7 +100,31 @@ class IdentityResult:
         return sum(1 for i in self.identities if i.state == IdentityState.UNVERIFIED)
 
 
+class FaceDetectorConfig(BaseModel):
+    backend: str = Field(
+        default="yunet",
+        description="Face detector backend: 'yunet', 'scrfd', 'heuristic', 'mock'",
+    )
+    model_path: Optional[str] = Field(
+        default=None,
+        description="Path to face detector model weights (e.g. face_detection_yunet_2023mar.onnx or scrfd.onnx)",
+    )
+    conf_threshold: float = Field(
+        default=0.5, ge=0.0, le=1.0, description="Face detection confidence threshold"
+    )
+    nms_threshold: float = Field(
+        default=0.4, ge=0.0, le=1.0, description="NMS threshold for face bounding box suppression"
+    )
+    input_size: Tuple[int, int] = Field(
+        default=(320, 320), description="Target input inference resolution (width, height)"
+    )
+
+
 class IdentityConfig(BaseModel):
+    detector: FaceDetectorConfig = Field(
+        default_factory=FaceDetectorConfig,
+        description="Specialized face detector configuration",
+    )
     similarity_threshold: float = Field(
         default=0.6, ge=0.0, le=1.0, description="Similarity score threshold for vector match"
     )

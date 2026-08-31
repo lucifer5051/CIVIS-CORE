@@ -8,6 +8,8 @@ class DetectionMode(str, Enum):
     FULL_FRAME = "full_frame"
     SLICED_ONLY = "sliced_only"
     HYBRID = "hybrid"
+    AUTO = "auto"
+    ADAPTIVE = "adaptive"
 
 
 @dataclass
@@ -81,14 +83,24 @@ class SAHIConfig(BaseModel):
     overlap_width_ratio: float = Field(default=0.2, ge=0.0, lt=1.0, description="Width overlap ratio between slices")
     mode: DetectionMode = Field(
         default=DetectionMode.HYBRID,
-        description="Inference mode: full_frame, sliced_only, or hybrid",
+        description="Inference mode: full_frame, sliced_only, hybrid, auto, adaptive",
     )
     postprocess_match_threshold: float = Field(
         default=0.5, ge=0.0, le=1.0, description="NMS match threshold for merging overlapping slice predictions"
     )
+    auto_min_dimension: int = Field(
+        default=960, description="Minimum dimension to activate slicing when in AUTO/ADAPTIVE mode"
+    )
+    small_object_boost: bool = Field(
+        default=True, description="Whether to prioritize low-confidence small objects in slices"
+    )
+    slice_conf_threshold: Optional[float] = Field(
+        default=None, description="Optional slice-specific confidence threshold"
+    )
 
 
 class DetectorConfig(BaseModel):
+    backend: str = Field(default="yolo12", description="Detector backend: 'yolo12', 'mock'")
     model_path: str = Field(default="yolo12n.pt", description="Path to YOLO12 weights or model name")
     conf_threshold: float = Field(default=0.25, ge=0.0, le=1.0, description="Confidence score threshold")
     iou_threshold: float = Field(default=0.45, ge=0.0, le=1.0, description="NMS IoU threshold")

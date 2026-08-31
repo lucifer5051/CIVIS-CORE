@@ -45,17 +45,28 @@ class SAHIDetector(BaseDetector):
         start_time = time.perf_counter()
         mode = self._sahi_config.mode
 
+        frame_w, frame_h = packet.dimensions
+
+        # Mode Resolution: Auto / Adaptive Decision
+        active_mode = mode
+        if mode in (DetectionMode.AUTO, DetectionMode.ADAPTIVE):
+            if max(frame_w, frame_h) >= self._sahi_config.auto_min_dimension:
+                active_mode = DetectionMode.HYBRID
+            else:
+                active_mode = DetectionMode.FULL_FRAME
+
         # Mode 1: Full-Frame Mode
-        if mode == DetectionMode.FULL_FRAME:
+        if active_mode == DetectionMode.FULL_FRAME:
             res = self._base_detector.detect(packet)
-            res.metadata["sahi_mode"] = mode.value
+            res.metadata["sahi_mode"] = active_mode.value
+            res.metadata["configured_mode"] = mode.value
             return res
 
         all_detections: List[Detection] = []
         slice_count = 0
 
         # Mode 3: Hybrid Mode - Include Full-Frame Detection
-        if mode == DetectionMode.HYBRID:
+        if active_mode == DetectionMode.HYBRID:
             full_frame_res = self._base_detector.detect(packet)
             all_detections.extend(full_frame_res.detections)
 
@@ -79,7 +90,8 @@ class SAHIDetector(BaseDetector):
             metadata={
                 "engine": "SAHIDetector",
                 "base_engine": self._base_detector.__class__.__name__,
-                "sahi_mode": mode.value,
+                "sahi_mode": active_mode.value,
+                "configured_mode": mode.value,
                 "slice_count": slice_count,
                 "slice_height": self._sahi_config.slice_height,
                 "slice_width": self._sahi_config.slice_width,
@@ -121,6 +133,13 @@ class SAHIDetector(BaseDetector):
                 global_y1 = float(shift_y + det.bbox.y1)
                 global_x2 = float(shift_x + det.bbox.x2)
                 global_y2 = float(shift_y + det.bbox.y2)
+
+                # Optional slice-specific confidence threshold filter
+                if (
+                    self._sahi_config.slice_conf_threshold is not None
+                    and det.confidence < self._sahi_config.slice_conf_threshold
+                ):
+                    continue
 
                 global_bbox = BoundingBox(x1=global_x1, y1=global_y1, x2=global_x2, y2=global_y2)
                 slice_detections.append(

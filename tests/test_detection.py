@@ -55,6 +55,10 @@ class TestDetectorFactory(unittest.TestCase):
         detector = create_detector(cfg)
         self.assertIsInstance(detector, MockDetector)
 
+    def test_detector_config_backend_field(self):
+        cfg = DetectorConfig(backend="mock", use_mock=True)
+        self.assertEqual(cfg.backend, "mock")
+
 
 if __name__ == "__main__":
     unittest.main()

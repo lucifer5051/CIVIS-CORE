@@ -28,30 +28,14 @@ from civis.tracking.models import TrackResult
 logger = logging.getLogger(__name__)
 
 
-class DefaultFaceDetector(BaseFaceDetector):
-    def detect_faces(self, packet: FramePacket, track_result: TrackResult) -> List[FaceCrop]:
-        crops = []
-        frame_h, frame_w = packet.dimensions
-        for track in track_result.tracks:
-            # Crop top-half region of person bounding box for face detection
-            bx1, by1 = max(0, int(track.bbox.x1)), max(0, int(track.bbox.y1))
-            bx2, by2 = min(frame_w, int(track.bbox.x2)), min(frame_h, int(track.bbox.y2))
-            
-            face_h = max(10, int((by2 - by1) * 0.35))
-            face_y2 = min(frame_h, by1 + face_h)
+from civis.identity.face_detector import (
+    HeuristicFaceDetector,
+    MockFaceDetector,
+    create_face_detector,
+)
 
-            crop_img = packet.frame[by1:face_y2, bx1:bx2].copy() if (bx2 > bx1 and face_y2 > by1) else None
-
-            crops.append(
-                FaceCrop(
-                    face_id=f"face_{track.track_id}_{track_result.camera_id}",
-                    track_id=track.track_id,
-                    camera_id=track_result.camera_id,
-                    bbox=track.bbox,
-                    crop_img=crop_img,
-                )
-            )
-        return crops
+# Backward-compatible alias
+DefaultFaceDetector = HeuristicFaceDetector
 
 
 class DefaultFaceAligner(BaseFaceAligner):
@@ -77,7 +61,11 @@ class IdentityEngine:
         gallery: Optional[BaseIdentityGallery] = None,
     ) -> None:
         self._config = config if config is not None else IdentityConfig()
-        self._detector = face_detector if face_detector is not None else DefaultFaceDetector()
+        self._detector = (
+            face_detector
+            if face_detector is not None
+            else create_face_detector(self._config.detector)
+        )
         self._quality = quality_assessor if quality_assessor is not None else LaplacianFaceQuality()
         self._aligner = aligner if aligner is not None else DefaultFaceAligner()
         self._embedder = embedder
@@ -189,6 +177,7 @@ class MockIdentityEngine(IdentityEngine):
 
         super().__init__(
             config=cfg,
+            face_detector=MockFaceDetector(),
             quality_assessor=LaplacianFaceQuality(min_area=10, target_variance=1.0),  # Permissive quality for synthetic frames
             embedder=embedder,
             gallery=gallery,

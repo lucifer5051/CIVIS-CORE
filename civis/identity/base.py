@@ -4,6 +4,7 @@ import numpy as np
 
 from civis.identity.models import (
     FaceCrop,
+    FaceDetection,
     FaceEmbedding,
     IdentityMatch,
     IdentityResult,
@@ -13,6 +14,10 @@ from civis.tracking.models import TrackResult
 
 
 class BaseFaceDetector(ABC):
+    def detect_raw_faces(self, image: np.ndarray) -> List[FaceDetection]:
+        """Detect raw unassociated faces from an image matrix."""
+        return []
+
     @abstractmethod
     def detect_faces(self, packet: FramePacket, track_result: TrackResult) -> List[FaceCrop]:
         """Extract face bounding box crops from tracked person objects."""
