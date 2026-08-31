@@ -154,6 +154,16 @@ class YuNetFaceDetector(BaseFaceDetector):
 
     def _init_detector(self) -> None:
         model_path = self._config.model_path
+        if not model_path or not os.path.exists(model_path):
+            candidates = [
+                "models/face_detection_yunet_2023mar.onnx",
+                os.path.join(os.path.dirname(__file__), "..", "..", "models", "face_detection_yunet_2023mar.onnx"),
+            ]
+            for c in candidates:
+                if os.path.exists(c):
+                    model_path = os.path.abspath(c)
+                    break
+
         if model_path and os.path.exists(model_path):
             try:
                 self._detector = cv2.FaceDetectorYN.create(
@@ -168,6 +178,8 @@ class YuNetFaceDetector(BaseFaceDetector):
             except Exception as e:
                 logger.warning("Failed to initialize cv2.FaceDetectorYN (%s). Fallback active.", e)
                 self._detector = None
+        else:
+            logger.info("YuNet ONNX model not found at %s. Using heuristic face detector.", model_path)
 
     def detect_raw_faces(self, image: np.ndarray) -> List[FaceDetection]:
         if self._detector is None or image is None:

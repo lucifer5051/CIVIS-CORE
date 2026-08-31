@@ -142,8 +142,17 @@ class RuntimeEngine(BasePipelineRuntime):
             conf_threshold=0.25,       # standard confidence threshold
             iou_threshold=0.45,
         ))
-        tracker = create_tracker(TrackerConfig(use_mock=use_mock))
-        identity_engine = create_identity_engine(IdentityConfig(use_mock=use_mock))
+        tracker = create_tracker(TrackerConfig(
+            use_mock=use_mock,
+            track_thresh=0.35,   # Smooth tracking activation threshold
+            match_thresh=0.65,   # Forgiving IoU match threshold to avoid track ID hopping
+            track_buffer=60,     # Retain track memory for 2s (60 frames) during brief occlusions
+            frame_rate=30,
+        ))
+        identity_engine = create_identity_engine(IdentityConfig(
+            use_mock=use_mock,
+            similarity_threshold=0.55,
+        ))
         behavior_engine = create_behavior_engine(BehaviorConfig(use_mock=use_mock))
         event_engine = create_event_intelligence_engine(EventIntelligenceConfig(use_mock=use_mock))
         risk_engine = create_risk_engine(RiskEngineConfig(use_mock=use_mock))
